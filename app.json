@@ -4,20 +4,35 @@
     "slug": "eco-vivid",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
-    "assetBundlePatterns": ["**/*"],
-    "ios": { "supportsTablet": true },
-    "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.cbartkiewicz.ecovivid",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
-    "web": { "favicon": "./assets/favicon.png" }
+    "android": {
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
+    },
+    "web": {},
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to scan items."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "f5f0f424-1884-430a-9343-42b3a164f330"
+      }
+    },
+    "owner": "cbartkiewicz"
   }
 }
