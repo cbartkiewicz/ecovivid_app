@@ -263,6 +263,7 @@ const HomeScreen = ({
     <TouchableOpacity 
       style={[styles.bluetoothButton, bluetoothConnected && styles.bluetoothButtonConnected]}
       onPress={() => setShowBluetoothModal(true)}
+      activeOpacity={0.7}
     >
       <Bluetooth color={bluetoothConnected ? "white" : "#16a34a"} size={24} />
       <Text style={[styles.bluetoothButtonText, bluetoothConnected && styles.bluetoothButtonTextConnected]}>
@@ -709,11 +710,18 @@ export default function App() {
   useEffect(() => {
     loadRecyclingLog();
     loadUserLocation();
-    initializeBluetooth();
+    // Initialize Bluetooth with error handling to prevent crashes
+    initializeBluetooth().catch((error) => {
+      console.warn('Bluetooth initialization failed, continuing without Bluetooth:', error);
+    });
     
     return () => {
       // Cleanup on unmount
-      bluetoothService.destroy();
+      try {
+        bluetoothService.destroy();
+      } catch (error) {
+        console.warn('Error during Bluetooth cleanup:', error);
+      }
     };
   }, []);
 
@@ -735,6 +743,8 @@ export default function App() {
       }
     } catch (error) {
       console.log('No existing log found, starting fresh');
+      // Ensure we have an empty array if loading fails
+      setRecyclingLog([]);
     }
   };
 
@@ -1080,16 +1090,24 @@ export default function App() {
         }
       }
 
-      const initialized = await bluetoothService.initialize();
-      if (initialized) {
-        // Check if already connected
-        if (bluetoothService.isConnected()) {
-          setBluetoothConnected(true);
-          setBluetoothDevice(bluetoothService.getConnectedDevice());
+      // Try to initialize Bluetooth, but don't crash if it fails
+      try {
+        const initialized = await bluetoothService.initialize();
+        if (initialized) {
+          // Check if already connected
+          if (bluetoothService.isConnected()) {
+            setBluetoothConnected(true);
+            setBluetoothDevice(bluetoothService.getConnectedDevice());
+          }
         }
+      } catch (bluetoothError: any) {
+        // If Bluetooth fails (e.g., not available, permissions denied), just log and continue
+        console.warn('Bluetooth initialization failed:', bluetoothError?.message || bluetoothError);
+        // Don't throw - allow app to continue without Bluetooth
       }
     } catch (error) {
-      console.error('Bluetooth initialization error:', error);
+      // Catch any other errors and log them without crashing
+      console.error('Bluetooth setup error:', error);
     }
   };
 
@@ -1210,7 +1228,7 @@ export default function App() {
 
   const sendToArduino = async (isRecyclable: boolean) => {
     if (!bluetoothService.isConnected()) {
-      console.warn('Bluetooth not connected, skipping Arduino transmission');
+      console.warn('⚠️  Bluetooth not connected, skipping Arduino transmission');
       return false;
     }
 
@@ -1219,17 +1237,27 @@ export default function App() {
       // AAEE55ED = recyclable (opens recyclable bin)
       // AA115510 = not recyclable (opens non-recyclable bin)
       const hexCode = isRecyclable ? 'AAEE55ED' : 'AA115510';
+      const status = isRecyclable ? 'RECYCLABLE' : 'NOT RECYCLABLE';
+      
+      console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('📤 SENDING HEX CODE TO ARDUINO');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log(`Hex Code: ${hexCode}`);
+      console.log(`Status: ${status}`);
+      console.log(`Item Type: ${isRecyclable ? 'Recyclable → Opens Recyclable Bin' : 'Non-Recyclable → Opens Waste Bin'}`);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+      
       const success = await bluetoothService.sendHexCode(hexCode);
       
       if (success) {
-        console.log(`Sent hex code to Arduino: ${hexCode} (${isRecyclable ? 'recyclable' : 'not recyclable'})`);
+        console.log(`✅ Successfully sent hex code ${hexCode} to Arduino (${status})`);
         return true;
       } else {
-        console.warn('Failed to send hex code to Arduino');
+        console.error(`❌ Failed to send hex code ${hexCode} to Arduino`);
         return false;
       }
     } catch (error) {
-      console.error('Error sending to Arduino:', error);
+      console.error('❌ Error sending to Arduino:', error);
       return false;
     }
   };
@@ -1890,7 +1918,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 16,
     marginBottom: 16,
+    marginHorizontal: 20,
     borderWidth: 2,
     borderColor: '#16a34a',
     shadowColor: '#000',

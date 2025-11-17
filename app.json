@@ -9,7 +9,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.cbartkiewicz.ecovivid",
+      "bundleIdentifier": "com.cbartkiewicz.ecovividapp",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSBluetoothAlwaysUsageDescription": "This app uses Bluetooth to connect to your Arduino recycling bin for automatic logging.",
@@ -22,7 +22,8 @@
             }
           }
         }
-      }
+      },
+      "appleTeamId": "SMJ4SA8S85"
     },
     "android": {
       "permissions": [
@@ -31,7 +32,8 @@
         "android.permission.BLUETOOTH_ADMIN",
         "android.permission.BLUETOOTH_SCAN",
         "android.permission.BLUETOOTH_CONNECT",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {},

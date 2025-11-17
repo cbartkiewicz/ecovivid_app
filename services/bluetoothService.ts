@@ -1,4 +1,5 @@
 import { BleManager, Device, Characteristic, Service } from 'react-native-ble-plx';
+import { Platform } from 'react-native';
 
 // HM-10 BLE Module Configuration
 // HM-10 typically uses these UUIDs (may vary by firmware version)
@@ -17,19 +18,52 @@ export interface BluetoothDevice {
 
 
 class BluetoothService {
-  private manager: BleManager;
+  private manager: BleManager | null = null;
   private connectedDevice: Device | null = null;
   private characteristic: Characteristic | null = null;
+  private characteristicUUID: string | null = null;
+  private serviceUUID: string | null = null;
   private isScanning: boolean = false;
+  private isSimulator: boolean = false;
 
   constructor() {
-    this.manager = new BleManager();
+    // Don't initialize BleManager in constructor to avoid errors in simulator
+    // Use lazy initialization instead
+    // Simulator detection will happen when methods are called
+  }
+
+  // Lazy initialization of BleManager
+  private getManager(): BleManager {
+    if (!this.manager) {
+      try {
+        this.manager = new BleManager();
+      } catch (error: any) {
+        // If initialization fails, likely running on simulator
+        const errorMessage = error?.message || String(error);
+        if (errorMessage.includes('NativeEventEmitter') || 
+            errorMessage.includes('null') ||
+            errorMessage.includes('undefined')) {
+          this.isSimulator = true;
+          throw new Error('Bluetooth is not available on iOS Simulator. Please use a physical device.');
+        }
+        console.error('Failed to initialize BleManager:', error);
+        throw new Error('Bluetooth is not available on this device.');
+      }
+    }
+    
+    return this.manager;
   }
 
   // Initialize Bluetooth
   async initialize(): Promise<boolean> {
+    if (this.isSimulator) {
+      console.warn('Bluetooth is not available on iOS Simulator');
+      return false;
+    }
+
     try {
-      const state = await this.manager.state();
+      const manager = this.getManager();
+      const state = await manager.state();
       
       // Handle all possible Bluetooth states
       if (state === 'PoweredOn') {
@@ -49,7 +83,7 @@ class BluetoothService {
             resolve(false);
           }, 10000); // 10 second timeout
           
-          const subscription = this.manager.onStateChange((newState) => {
+          const subscription = manager.onStateChange((newState) => {
             if (newState === 'PoweredOn') {
               clearTimeout(timeout);
               subscription.remove();
@@ -70,7 +104,7 @@ class BluetoothService {
           resolve(false);
         }, 5000);
         
-        const subscription = this.manager.onStateChange((newState) => {
+        const subscription = manager.onStateChange((newState) => {
           if (newState === 'PoweredOn') {
             clearTimeout(timeout);
             subscription.remove();
@@ -93,13 +127,19 @@ class BluetoothService {
     onDeviceFound: (device: BluetoothDevice) => void,
     deviceName?: string
   ): Promise<void> {
+    if (this.isSimulator) {
+      throw new Error('Bluetooth is not available on iOS Simulator. Please use a physical device.');
+    }
+
     if (this.isScanning) {
       return;
     }
 
+    const manager = this.getManager();
+
     // Check Bluetooth state before scanning
     try {
-      const state = await this.manager.state();
+      const state = await manager.state();
       if (state !== 'PoweredOn') {
         throw new Error(`Bluetooth is not ready. Current state: ${state}`);
       }
@@ -119,7 +159,7 @@ class BluetoothService {
       // - Service Data B000: 0x00000000
       // 
       // We scan all devices first, then filter by name (most reliable identifier)
-      await this.manager.startDeviceScan(
+      await manager.startDeviceScan(
         null, // Scan all devices to ensure we catch it even if service UUID isn't advertised
         { allowDuplicates: false },
         (error, device) => {
@@ -177,17 +217,27 @@ class BluetoothService {
 
   // Stop scanning
   stopScan(): void {
-    if (this.isScanning) {
-      this.manager.stopDeviceScan();
+    if (this.isScanning && this.manager) {
+      try {
+        this.manager.stopDeviceScan();
+      } catch (error) {
+        console.error('Error stopping scan:', error);
+      }
       this.isScanning = false;
     }
   }
 
   // Connect to a device
   async connectToDevice(deviceId: string): Promise<boolean> {
+    if (this.isSimulator) {
+      throw new Error('Bluetooth is not available on iOS Simulator. Please use a physical device.');
+    }
+
     try {
+      const manager = this.getManager();
+      
       // Check Bluetooth state before connecting
-      const state = await this.manager.state();
+      const state = await manager.state();
       if (state !== 'PoweredOn') {
         throw new Error(`Cannot connect: Bluetooth is not ready. Current state: ${state}`);
       }
@@ -199,7 +249,7 @@ class BluetoothService {
 
       // Connect with timeout
       const device = await Promise.race([
-        this.manager.connectToDevice(deviceId),
+        manager.connectToDevice(deviceId),
         new Promise<never>((_, reject) => 
           setTimeout(() => reject(new Error('Connection timeout')), 10000)
         )
@@ -220,7 +270,10 @@ class BluetoothService {
               char.uuid.toLowerCase().includes('ff01') ||
               char.properties.write) {
             this.characteristic = char;
+            this.characteristicUUID = char.uuid;
+            this.serviceUUID = service.uuid;
             this.connectedDevice = device;
+            console.log('Found characteristic:', char.uuid, 'in service:', service.uuid);
             return true;
           }
         }
@@ -232,7 +285,10 @@ class BluetoothService {
         const writableChar = characteristics.find(char => char.properties.write);
         if (writableChar) {
           this.characteristic = writableChar;
+          this.characteristicUUID = writableChar.uuid;
+          this.serviceUUID = service.uuid;
           this.connectedDevice = device;
+          console.log('Found writable characteristic:', writableChar.uuid, 'in service:', service.uuid);
           return true;
         }
       }
@@ -246,6 +302,9 @@ class BluetoothService {
         const firstChar = (await firstService.characteristics())[0];
         if (firstChar) {
           this.characteristic = firstChar;
+          this.characteristicUUID = firstChar.uuid;
+          this.serviceUUID = firstService.uuid;
+          console.log('Using fallback characteristic:', firstChar.uuid, 'in service:', firstService.uuid);
         }
         return true;
       }
@@ -274,6 +333,8 @@ class BluetoothService {
         await this.connectedDevice.cancelConnection();
         this.connectedDevice = null;
         this.characteristic = null;
+        this.characteristicUUID = null;
+        this.serviceUUID = null;
       }
     } catch (error) {
       console.error('Disconnect error:', error);
@@ -282,12 +343,47 @@ class BluetoothService {
 
   // Send hex code to Arduino
   async sendHexCode(hexCode: string): Promise<boolean> {
-    if (!this.connectedDevice || !this.characteristic) {
+    if (!this.connectedDevice) {
       console.warn('No device connected');
       return false;
     }
 
     try {
+      // Always re-fetch the characteristic to ensure it's still valid
+      // Characteristic objects can become stale, so we re-fetch using stored UUIDs
+      let characteristic: Characteristic | null = null;
+      
+      if (this.serviceUUID && this.characteristicUUID) {
+        try {
+          const services = await this.connectedDevice.services();
+          for (const service of services) {
+            if (service.uuid.toLowerCase() === this.serviceUUID!.toLowerCase()) {
+              const characteristics = await service.characteristics();
+              characteristic = characteristics.find(
+                char => char.uuid.toLowerCase() === this.characteristicUUID!.toLowerCase()
+              ) || null;
+              if (characteristic) {
+                // Update the stored characteristic reference
+                this.characteristic = characteristic;
+                break;
+              }
+            }
+          }
+        } catch (error) {
+          console.warn('Error re-fetching characteristic:', error);
+          // Fall back to stored characteristic if re-fetch fails
+          characteristic = this.characteristic;
+        }
+      } else {
+        // If we don't have UUIDs stored, use the stored characteristic
+        characteristic = this.characteristic;
+      }
+
+      if (!characteristic) {
+        console.error('Characteristic not found. Service UUID:', this.serviceUUID, 'Characteristic UUID:', this.characteristicUUID);
+        return false;
+      }
+
       // Convert hex string to byte array
       // Hex code format: "AAEE55ED" -> [0xAA, 0xEE, 0x55, 0xED]
       const bytes: number[] = [];
@@ -316,18 +412,21 @@ class BluetoothService {
         base64Message = binary;
       }
 
-      await this.characteristic.writeWithoutResponse(base64Message);
-      console.log(`Sent hex code: ${hexCode}`);
+      await characteristic.writeWithoutResponse(base64Message);
+      console.log(`✅ Bluetooth: Successfully wrote hex code ${hexCode} to characteristic: ${characteristic.uuid}`);
       return true;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Send hex code error:', error);
+      console.error('Error details:', error?.message, error?.code);
+      // Try to re-fetch characteristic on next attempt
+      this.characteristic = null;
       return false;
     }
   }
 
   // Check if connected
   isConnected(): boolean {
-    return this.connectedDevice !== null && this.characteristic !== null;
+    return this.connectedDevice !== null && (this.characteristic !== null || (this.serviceUUID !== null && this.characteristicUUID !== null));
   }
 
   // Get connected device info
@@ -348,7 +447,13 @@ class BluetoothService {
     if (this.connectedDevice) {
       this.disconnect();
     }
-    this.manager.destroy();
+    if (this.manager) {
+      try {
+        this.manager.destroy();
+      } catch (error) {
+        console.error('Error destroying BleManager:', error);
+      }
+    }
   }
 }
 
